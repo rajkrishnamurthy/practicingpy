@@ -1,6 +1,11 @@
-from sqlalchemy import create_engine
+# There is a bug in this code
+# The code assumes that the Control Numbers are in Decimal increments; for example 1.2.5.9. 
+# The logic will be thrown off for the following control number: 1.2.21.34 as this will have the same effect as 1.2.2.1.3.4
+
+from sqlalchemy import create_engine  
 import pandas as pd
 import numpy as np
+import random as rand
 
 engine = create_engine('postgresql://continube:ContiNube1234@staging.continube.co:5432/continube')
 dfcontrols = pd.read_sql('select * from controls',con=engine)
@@ -16,6 +21,10 @@ frameworksslice = dfframeworks.loc[:,selectcols]
 frameworksslice = frameworksslice.rename(columns={'id':'framework_id', 'version':'framework_version'})
 selectcols = ['framework_id','name','displayable']
 controlsslice = dfcontrols.loc[:,selectcols]
+
+controlsslice['compliance_pct']=-1
+controlsslice['compliance']=None
+
 joindf = pd.merge(frameworksslice,controlsslice,on='framework_id')
 joindf = joindf.rename(columns={'name_x':'framework_name', 'name_y':'control_name', 'displayable':'number'})
 
@@ -37,14 +46,11 @@ sorteddf=pd.merge(subdf,numdf,on='number',how='inner').sort_values(by='cumnum')
 
 del subdf, numdf
 
-#Assign Random Compliance% to all leaf controls
-#1. Identify leaf controls
-#2. Randomly assign 'Pass' and 100% to a certain % of Controls
-#3. For the unassigned leaf controls, assign a random compliance value between 0 to 100%
-
-# default assign root and leaf attributes as False
+# default assign leaf attributes as False
 sorteddf['leaf']=-1
-# sorteddf.loc[:,'root']=sorteddf.loc[sorteddf.loc[:,'cumnum']%10**5==0]
+# switch index to cumnum
+#sorteddf.set_index('Cumnum',inplace=True, drop=True)
+
 def checkIfRoot(row):
     return row['cumnum']%10**(hieararchyLevel-1)==0
 sorteddf['root']=sorteddf.apply(checkIfRoot, axis=1)
@@ -73,5 +79,16 @@ sorteddf.loc[:,'leaf']=sorteddf.apply(checkIfLeaf,axis=1)
 def changeControlName(row):
     return row['control_name'].lower()
 sorteddf.loc[:,'control_name']=sorteddf.apply(changeControlName,axis=1) 
+
+#Assign Random Compliance% to all leaf controls
+#1. Identify leaf controls
+#2. Randomly assign 'pass' or 'fail' or 'non-determinant'. Assign 100% to all 'pass' Controls
+#3. For the 'fail' leaf controls, assign a random compliance value between 0 to 100%
+
+compStatus=['pass','fail','non-determinant']
+subsetCols=['id','compliance','leaf','root']
+
+#sorteddf['compliance'].apply(compliance_rnd)
+#sorteddf['compliance_pct'].apply(compliance_pct_rnd)
 
 sorteddf.to_csv('out.csv')
